@@ -14,3 +14,5 @@ A library to easilty schedule an FnOnce to run in the future
 travis-ci = { repository = "fuchsnj/task_scheduler" }
 
 [dependencies]
+tokio = {version = "0.2.0", features = ["macros"]}
+futures = "0.3.5"
