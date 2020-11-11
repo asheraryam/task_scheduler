@@ -1,3 +1,5 @@
+#![feature(drain_filter)]
+
 use futures::*;
 use std::cmp::{Eq, Ord, Ordering, PartialOrd};
 use std::collections::BinaryHeap;
@@ -7,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[feature(async_closure)]
-
+// #[derive(Copy, Clone)]
 struct Entry {
     pub instant: Instant,
     pub callback: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
@@ -39,54 +41,43 @@ impl Ord for Entry {
 
 struct SharedData {
     pub cond_var: Condvar,
-    pub callbacks: Mutex<BinaryHeap<Entry>>,
+    pub callbacks: Vec<Entry>,
 }
 
 pub struct Scheduler {
-    data: Arc<SharedData>,
+    data: SharedData,
 }
-
 impl Scheduler {
-    pub async fn tick(&self) {
-        let shared_data = self.data.clone();
-				let mut callbacks = shared_data.callbacks.lock().unwrap();
-				loop {
-					let entry = callbacks.pop();
-					match entry {
-						Some(mut entry) => {
-							let now = Instant::now();
-							if entry.instant > now {
-								let wait_duration = entry.instant - now;
-								callbacks.push(entry);
-								callbacks = shared_data.cond_var
-										.wait_timeout(callbacks, wait_duration).unwrap().0;
-							} else {
-								(entry.callback)().await
-							}
-						}
-						None => {
-							callbacks = shared_data.cond_var.wait(callbacks).unwrap();
-						}
-					}
-				}
+    pub async fn tick(&mut self) {
+        let now = Instant::now();
+
+        let due_things: Vec<Entry> = self
+            .data
+            .callbacks
+            .drain_filter(|x| x.instant <= now)
+            .collect();
+
+        for entry in due_things {
+            (entry.callback)().await
+        }
     }
 
     pub fn new() -> Scheduler {
-        let shared_data = Arc::new(SharedData {
+        let shared_data = SharedData {
             cond_var: Condvar::new(),
-            callbacks: Mutex::new(BinaryHeap::new()),
-        });
+            callbacks: Vec::new(),
+        };
         {}
 
         Scheduler { data: shared_data }
     }
 
     pub fn after_instant(
-        &self,
+        &mut self,
         instant: Instant,
         func: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
     ) {
-        self.data.callbacks.lock().unwrap().push(Entry {
+        self.data.callbacks.push(Entry {
             instant,
             callback: func,
         });
@@ -94,7 +85,7 @@ impl Scheduler {
     }
 
     pub fn after_duration(
-        &self,
+        &mut self,
         duration: Duration,
         func: Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
     ) {

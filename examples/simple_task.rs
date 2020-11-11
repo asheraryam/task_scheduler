@@ -14,10 +14,18 @@ use task_scheduler::Scheduler;
 
 #[tokio::main]
 async fn main() {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut scheduler = Scheduler::new();
 
-    let atomic = AtomicBool::new(false);
-    let scheduler = Scheduler::new();
+    scheduler.after_instant(
+        Instant::now() + Duration::from_millis(5000),
+        Box::new(|| {
+            Box::pin(async {
+                println!("This ran after 5 seconds!");
+                // FIXME This does not live long enough
+                // atomic.store(true, Ordering::Relaxed);
+            })
+        }),
+    );
 
     scheduler.after_instant(
         Instant::now() + Duration::from_millis(10000),
@@ -30,10 +38,9 @@ async fn main() {
         }),
     );
 
-    scheduler.tick().await;
-
-    // atomic.store(true, Ordering::Relaxed);
-
-    // thread::sleep(Duration::from_millis(100));
-    // assert_eq!(atomic.load(Ordering::Relaxed), true);
+    loop {
+        println!("Tick ");
+        scheduler.tick().await;
+        thread::sleep(Duration::from_millis(1000));
+    }
 }
